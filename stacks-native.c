@@ -178,8 +178,11 @@ extern void caml_raise_exception (const value bucket) Noreturn;
 Before, I had
    #define Highest_stack_addr ((value*)(-1024))
 Now, the it seems the top of stack is available...
+  #define Highest_stack_addr ((value*)caml_top_of_stack)
+BUT! It seems not constant, and hence not suitable for offsets!
+Retracking
 */
-#define Highest_stack_addr ((value*)caml_top_of_stack)
+#define Highest_stack_addr ((value*)(-1024))
 
 /* Under no circumstances EVER EVER EVER should assert be disabled!!! */
 
@@ -878,7 +881,6 @@ value push_stack_fragment(const value ekfragment, const value delimcc_exc)
   ekfragment_t ekp;
   const char * frag_bottom;
   const frame_descr * fdtop = find_frame(caml_exception_pointer);
-  char *p;
 
   /*   myassert(Is_block(ekfragment) && Tag_val(ekfragment) == Custom_tag); */
 
@@ -894,10 +896,22 @@ value push_stack_fragment(const value ekfragment, const value delimcc_exc)
 #endif
 
   /* Can't check for stack overflow.... */
-  p = alloca(size);
-  push_stack_fragment_really(ekp, p, fdtop, delimcc_exc);
-  /* should not be tail recursive, to keep the alloca-ted space */
+  {
+    char p[size];    /* Variable-size array! Allowed in C99 */
+                     /* Should have the effect of p = alloca(size); */
 
+    push_stack_fragment_really(ekp, p, fdtop, delimcc_exc);
+    /* should not be tail recursive, to keep the alloca-ted space */
+    /* The array p will we reclaimed at this point. But we don't care since
+        push_stack_fragment_really doesn't return
+    */
+  
+  }
+  /* The following function should not be called: push_stack_fragment_really
+     raises the exception. This function is called to prevent
+     the tail call to push_stack_fragment_really
+  */
+  exit(129);
   return Val_unit;
 }
 
@@ -913,6 +927,9 @@ static void push_stack_fragment_really(ekfragment_t ekp,
      because we just found its frametable, fdtop.
   */
   char * const new_trapsp = caml_exception_pointer - size;
+
+  *reserved_area = '\0'; /* To let the C compiler know we really use the area
+                            reserved_area is not a dead variable! */
 
   memcpy(new_trapsp,frag_bottom,size);
 
